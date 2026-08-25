@@ -7,11 +7,9 @@
 # schreibt ausschliesslich die telefonischen Erreichbarkeiten
 # (keine Sprechstunden) in eine CSV-Datei.
 #
-# Warum HTML statt Text-Kopie?
-# Auf der Seite stehen Sprechstunde und telefonische Erreichbarkeit
-# in getrennten Tabellenspalten nebeneinander. Beim Kopieren als
-# reiner Text verschmelzen die Spalten. Im HTML bleibt die Spalte
-# "Telefonische Erreichbarkeit" eindeutig erkennbar -> kein Raten.
+# Die Tagesspalten tragen das echte Datum von der Seite (z.B.
+# 25.08.2026). Dadurch funktioniert das Skript an jedem Tag –
+# auch im Dezember – ohne Anpassung.
 #
 # Benutzung:
 #   1. Ergebnisseite im Browser mit Cmd+S als "Webseite, vollstaendig"
@@ -23,7 +21,6 @@
 import re
 import csv
 from pathlib import Path
-from datetime import date
 
 try:
     from bs4 import BeautifulSoup
@@ -39,12 +36,7 @@ except ImportError:
 
 
 INPUT_FILE = "ergebnisse.html"
-OUTPUT_FILE = "telefonische_erreichbarkeit.csv"
-
-WEEKDAYS = [
-    "Montag", "Dienstag", "Mittwoch", "Donnerstag",
-    "Freitag", "Samstag", "Sonntag",
-]
+OUTPUT_FILE = "ergebnisse.csv"
 
 
 # ------------------------------------------------------------
@@ -68,20 +60,17 @@ def is_name(text):
     return bool(NAME_START.match(text))
 
 
-def weekday_from_date(dd, mm, yyyy):
-    return WEEKDAYS[date(int(yyyy), int(mm), int(dd)).weekday()]
-
-
-def detect_weekday(cell_text):
-    t = norm(cell_text)
-    for wd in WEEKDAYS:
-        if wd in t:
-            return wd
-    if "Heute" in t:
-        m = DATE_RE.search(t)
-        if m:
-            return weekday_from_date(m.group(1), m.group(2), m.group(3))
+def detect_date(cell_text):
+    # Jede Tageszelle enthaelt das Datum (auch die "Heute"-Zelle).
+    m = DATE_RE.search(norm(cell_text))
+    if m:
+        return f"{m.group(1)}.{m.group(2)}.{m.group(3)}"
     return None
+
+
+def date_sort_key(date_str):
+    dd, mm, yyyy = date_str.split(".")
+    return (int(yyyy), int(mm), int(dd))
 
 
 def extract_times(cell_text):
@@ -159,26 +148,24 @@ def phone_column_index(header_cells):
 
 
 def parse_table(table):
+    # Rueckgabe: dict  { "25.08.2026": "07:30-08:00; 12:30-12:55", ... }
     rows = table.find_all("tr")
     if not rows:
-        return None
+        return {}
 
     phone_idx = phone_column_index(rows[0].find_all(["th", "td"]))
-    result = {wd: "" for wd in WEEKDAYS}
-
     if phone_idx is None:
-        return result  # keine Telefon-Spalte -> alle Tage leer
+        return {}  # keine Telefon-Spalte -> nichts einzutragen
 
+    result = {}
     for row in rows[1:]:
         cells = row.find_all(["th", "td"])
         if not cells:
             continue
-        weekday = detect_weekday(cells[0].get_text(" "))
-        if not weekday or phone_idx >= len(cells):
+        d = detect_date(cells[0].get_text(" "))
+        if not d or phone_idx >= len(cells):
             continue
-        times = extract_times(cells[phone_idx].get_text(" "))
-        if times:
-            result[weekday] = times
+        result[d] = extract_times(cells[phone_idx].get_text(" "))
 
     return result
 
@@ -214,26 +201,38 @@ def main():
         print()
         return
 
-    therapists = []
+    therapists = []      # Liste von (kontakt_dict, {datum: zeiten})
+    all_dates = set()
+
     for table in tables:
         name, adresse, phone, email = extract_contact(table)
         if not name:
             continue
-        row = {"Name": name, "Adresse": adresse,
-               "Telefon": phone, "E-Mail": email}
-        row.update(parse_table(table))
-        therapists.append(row)
+        times_by_date = parse_table(table)
+        all_dates.update(times_by_date.keys())
+        therapists.append((
+            {"Name": name, "Adresse": adresse,
+             "Telefon": phone, "E-Mail": email},
+            times_by_date,
+        ))
 
     print(f"Erkannte Praxen: {len(therapists)}")
     if not therapists:
         print("Es wurden keine Praxen erkannt.")
         return
 
-    columns = ["Name", "Adresse", "Telefon", "E-Mail"] + WEEKDAYS
+    # Datumsspalten chronologisch sortieren
+    date_columns = sorted(all_dates, key=date_sort_key)
+    columns = ["Name", "Adresse", "Telefon", "E-Mail"] + date_columns
+
     with Path(OUTPUT_FILE).open("w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=columns, delimiter=";")
+        writer = csv.DictWriter(f, fieldnames=columns,
+                                delimiter=";", restval="")
         writer.writeheader()
-        writer.writerows(therapists)
+        for contact, times_by_date in therapists:
+            row = dict(contact)
+            row.update(times_by_date)
+            writer.writerow(row)
 
     print()
     print("Fertig. CSV erstellt:", Path(OUTPUT_FILE).resolve())
