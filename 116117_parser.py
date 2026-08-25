@@ -1,445 +1,186 @@
 #!/usr/bin/env python3
 
+# ------------------------------------------------------------
+# 116117 – NUR telefonische Erreichbarkeit aus gespeicherter HTML-Seite
+#
+# Liest eine gespeicherte HTML-Datei der 116117-Ergebnisliste und
+# schreibt ausschliesslich die telefonischen Erreichbarkeiten
+# (keine Sprechstunden) in eine CSV-Datei.
+#
+# Warum HTML statt Text-Kopie?
+# Auf der Seite stehen Sprechstunde und telefonische Erreichbarkeit
+# in getrennten Tabellenspalten nebeneinander. Beim Kopieren als
+# reiner Text verschmelzen die Spalten. Im HTML bleibt die Spalte
+# "Telefonische Erreichbarkeit" eindeutig erkennbar -> kein Raten.
+#
+# Benutzung:
+#   1. Ergebnisseite im Browser mit Cmd+S als "Webseite, vollstaendig"
+#      speichern, Dateiname: ergebnisse.html (gleicher Ordner).
+#   2. Einmalig:  pip install beautifulsoup4   (oder pip3 ...)
+#   3. Starten:   python3 116117_parser_html.py
+# ------------------------------------------------------------
+
 import re
 import csv
 from pathlib import Path
+from datetime import date
+
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    print()
+    print("Die Bibliothek 'beautifulsoup4' fehlt.")
+    print("Bitte einmal im Terminal ausfuehren:")
+    print()
+    print("    pip install beautifulsoup4")
+    print("    (falls das nicht klappt: pip3 install beautifulsoup4)")
+    print()
+    raise SystemExit(1)
 
 
-INPUT_FILE = "ergebnisse.txt"
-OUTPUT_FILE = "therapeuten_telefon.csv"
-
+INPUT_FILE = "ergebnisse.html"
+OUTPUT_FILE = "telefonische_erreichbarkeit.csv"
 
 WEEKDAYS = [
-    "Montag",
-    "Dienstag",
-    "Mittwoch",
-    "Donnerstag",
-    "Freitag",
-    "Samstag",
-    "Sonntag",
+    "Montag", "Dienstag", "Mittwoch", "Donnerstag",
+    "Freitag", "Samstag", "Sonntag",
 ]
 
 
-DAY_ABBREVIATIONS = {
-    "Mo": "Montag",
-    "Di": "Dienstag",
-    "Mi": "Mittwoch",
-    "Do": "Donnerstag",
-    "Fr": "Freitag",
-    "Sa": "Samstag",
-    "So": "Sonntag",
-}
-
-
 # ------------------------------------------------------------
-# TEXT BEREINIGEN
+# HILFSFUNKTIONEN
 # ------------------------------------------------------------
 
-def clean_text(text):
-    text = text.replace("\r", " ")
-    text = text.replace("\n", " ")
-    text = text.replace("\xa0", " ")
-    text = text.replace("\u200b", "")
+def norm(text):
+    # Mehrfache Leerzeichen / Umbrueche zu einem Leerzeichen
+    return re.sub(r"\s+", " ", (text or "")).strip()
 
-    # Mehrere Leerzeichen zusammenfassen
-    text = re.sub(r"\s+", " ", text)
 
-    return text.strip()
+NAME_START = re.compile(r"^(Frau|Herr|Dr\.|Prof\.|Dipl)", re.IGNORECASE)
+PHONE_RE = re.compile(r"^0[\d/ ]{5,}\d$")
+EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+PLZ_RE = re.compile(r"^\d{5}\s+\w")            # z.B. "13187 Berlin"
+DATE_RE = re.compile(r"(\d{2})\.(\d{2})\.(\d{4})")
+TIME_RANGE_RE = re.compile(r"(\d{1,2}):(\d{2})\s*(?:bis|-)\s*(\d{1,2}):(\d{2})")
 
 
-# ------------------------------------------------------------
-# NAMEN
-# ------------------------------------------------------------
+def is_name(text):
+    return bool(NAME_START.match(text))
 
-def extract_name(block):
 
-    pattern = re.compile(
-        r"Psychotherapie\s+"
-        r"((?:Frau|Herr)"
-        r"(?:\s+Dr\.)?"
-        r"(?:\s+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß\-]+)+)"
-    )
+def weekday_from_date(dd, mm, yyyy):
+    return WEEKDAYS[date(int(yyyy), int(mm), int(dd)).weekday()]
 
-    match = pattern.search(block)
 
-    if match:
-        return match.group(1).strip()
-
-    return ""
-
-
-# ------------------------------------------------------------
-# E-MAIL
-# ------------------------------------------------------------
-
-def extract_email(block):
-
-    matches = re.findall(
-        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-        block
-    )
-
-    if matches:
-        return matches[0]
-
-    return ""
-
-
-# ------------------------------------------------------------
-# TELEFON
-# ------------------------------------------------------------
-
-def extract_phone(block):
-
-    # Wir suchen Telefonnummern mit mindestens 8 Ziffern.
-    # Dabei dürfen Leerzeichen enthalten sein.
-
-    matches = re.findall(
-        r"(?<!\d)"
-        r"(0\d{2,5}"
-        r"(?:\s*\d{2,5}){2,4})"
-        r"(?!\d)",
-        block
-    )
-
-    if not matches:
-        return ""
-
-    # Telefonnummern normalisieren
-    phones = []
-
-    for phone in matches:
-
-        phone = re.sub(r"\s+", " ", phone).strip()
-
-        if phone not in phones:
-            phones.append(phone)
-
-    return phones[0] if phones else ""
-
-
-# ------------------------------------------------------------
-# ADRESSE
-# ------------------------------------------------------------
-
-def extract_address(block):
-
-    # Wir suchen nach einer Berliner PLZ.
-    #
-    # Funktioniert sowohl bei:
-    #
-    # 13187 Berlin
-    #
-    # als auch bei:
-    #
-    # 2713187 Berlin
-    #
-    # weil die PLZ am Ende immer 13187 ist.
-
-    plz_match = re.search(
-        r"(1\d{4})\s*Berlin",
-        block
-    )
-
-    if not plz_match:
-        return ""
-
-    plz = plz_match.group(1)
-
-    # Alles zwischen dem Namen und der PLZ
-    name = extract_name(block)
-
-    if not name:
-        return ""
-
-    name_position = block.find(name)
-
-    if name_position == -1:
-        return ""
-
-    start = name_position + len(name)
-    end = plz_match.start()
-
-    address = block[start:end]
-
-    # Typische nachfolgende Angaben entfernen
-    address = re.sub(
-        r"\b(?:Sprechstunde|Telefonische|Psych\.)\b.*$",
-        "",
-        address,
-        flags=re.IGNORECASE
-    )
-
-    address = address.strip(" ,")
-
-    # Falls die Hausnummer direkt an die PLZ geklebt wurde,
-    # steht sie bereits in "address".
-    #
-    # Beispiel:
-    #
-    # Schulstraße 27
-    #
-    # + 13187 Berlin
-
-    # Doppelte Leerzeichen entfernen
-    address = re.sub(r"\s+", " ", address)
-
-    if not address:
-        return f"{plz} Berlin"
-
-    return f"{address}, {plz} Berlin"
-
-
-# ------------------------------------------------------------
-# TELEFONZEITEN
-# ------------------------------------------------------------
-
-TIME_REGEX = re.compile(
-    r"(\d{1,2}:\d{2})\s*(?:bis|-)\s*(\d{1,2}:\d{2})"
-)
-
-
-def normalize_time(start, end):
-
-    if len(start) == 4:
-        start = "0" + start
-
-    if len(end) == 4:
-        end = "0" + end
-
-    return f"{start}-{end}"
-
-
-def extract_unique_times(text):
-
-    times = []
-
-    for match in TIME_REGEX.finditer(text):
-
-        value = normalize_time(
-            match.group(1),
-            match.group(2)
-        )
-
-        if value not in times:
-            times.append(value)
-
-    return times
-
-
-# ------------------------------------------------------------
-# TAGE ERKENNEN
-# ------------------------------------------------------------
-
-DAY_REGEX = re.compile(
-    r"(Heute\s+Heute\s+\d{2}\.\d{2}\.\d{4})"
-    r"|"
-    r"(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)"
-    r"(?:\s+(Mo|Di|Mi|Do|Fr|Sa|So))?"
-    r"\s+\d{2}\.\d{2}\.\d{4}"
-)
-
-
-def identify_day(match):
-
-    # "Heute"
-    if match.group(1):
-        return "__HEUTE__"
-
-    # Normaler Wochentag
-    day = match.group(2)
-
-    if day:
-        return day
-
+def detect_weekday(cell_text):
+    t = norm(cell_text)
+    for wd in WEEKDAYS:
+        if wd in t:
+            return wd
+    if "Heute" in t:
+        m = DATE_RE.search(t)
+        if m:
+            return weekday_from_date(m.group(1), m.group(2), m.group(3))
     return None
 
 
-def get_today_from_text(text):
+def extract_times(cell_text):
+    # Die Seite listet jede Zeit doppelt ("08:00 bis 12:00" und
+    # "08:00 - 12:00"). Wir sammeln jede Zeitspanne nur einmal.
+    seen = []
+    for m in TIME_RANGE_RE.finditer(cell_text or ""):
+        start = f"{int(m.group(1)):02d}:{m.group(2)}"
+        end = f"{int(m.group(3)):02d}:{m.group(4)}"
+        value = f"{start}-{end}"
+        if value not in seen:
+            seen.append(value)
+    return "; ".join(seen)
 
-    match = re.search(
-        r"Heute\s+Heute\s+"
-        r"(\d{2})\.(\d{2})\.(\d{4})",
-        text
-    )
 
-    if not match:
+# ------------------------------------------------------------
+# KONTAKTDATEN (Name, Adresse, Telefon, E-Mail) VOR DER TABELLE
+# ------------------------------------------------------------
+
+def extract_contact(table):
+    # Textstuecke vor der Tabelle rueckwaerts einsammeln, bis der
+    # Praxis-Name auftaucht (naechster "Frau/Herr/Dr. ..."-Eintrag).
+    collected = []
+    for s in table.find_all_previous(string=True):
+        txt = norm(s)
+        if not txt:
+            continue
+        collected.append(txt)
+        if is_name(txt):
+            break
+        if len(collected) > 60:
+            break
+    collected.reverse()
+
+    name = adresse = phone = email = ""
+    plz_line = street = ""
+
+    if collected and is_name(collected[0]):
+        name = collected[0]
+
+    for i, txt in enumerate(collected):
+        if not phone and PHONE_RE.match(txt):
+            phone = txt
+        if not email:
+            em = EMAIL_RE.search(txt)
+            if em and not txt.lower().startswith("http"):
+                email = em.group(0)
+        if not plz_line and PLZ_RE.match(txt):
+            plz_line = txt
+            if i > 0 and "entfernt" not in collected[i - 1].lower():
+                street = collected[i - 1]
+
+    if street and plz_line:
+        adresse = f"{street}, {plz_line}"
+    elif plz_line:
+        adresse = plz_line
+
+    return name, adresse, phone, email
+
+
+# ------------------------------------------------------------
+# TABELLE AUSLESEN (nur die Telefon-Spalte)
+# ------------------------------------------------------------
+
+def is_schedule_table(table):
+    head = norm(table.get_text(" "))
+    return ("Telefonische Erreichbarkeit" in head) or ("Sprechstunde" in head)
+
+
+def phone_column_index(header_cells):
+    for idx, c in enumerate(header_cells):
+        if "Telefonische Erreichbarkeit" in norm(c.get_text(" ")):
+            return idx
+    return None
+
+
+def parse_table(table):
+    rows = table.find_all("tr")
+    if not rows:
         return None
 
-    from datetime import date
+    phone_idx = phone_column_index(rows[0].find_all(["th", "td"]))
+    result = {wd: "" for wd in WEEKDAYS}
 
-    d = date(
-        int(match.group(3)),
-        int(match.group(2)),
-        int(match.group(1))
-    )
+    if phone_idx is None:
+        return result  # keine Telefon-Spalte -> alle Tage leer
 
-    german_days = [
-        "Montag",
-        "Dienstag",
-        "Mittwoch",
-        "Donnerstag",
-        "Freitag",
-        "Samstag",
-        "Sonntag",
-    ]
-
-    return german_days[d.weekday()]
-
-
-# ------------------------------------------------------------
-# TELEFONISCHE ERREICHBARKEIT EINES BLOCKS
-# ------------------------------------------------------------
-
-def extract_phone_hours(block):
-
-    result = {
-        day: ""
-        for day in WEEKDAYS
-    }
-
-    marker = block.find("Telefonische Erreichbarkeit")
-
-    if marker == -1:
-        return result
-
-    section = block[marker:]
-
-    today = get_today_from_text(section)
-
-    day_matches = list(DAY_REGEX.finditer(section))
-
-    if not day_matches:
-        return result
-
-    for i, match in enumerate(day_matches):
-
-        day = identify_day(match)
-
-        if day == "__HEUTE__":
-            day = today
-
-        if day is None:
+    for row in rows[1:]:
+        cells = row.find_all(["th", "td"])
+        if not cells:
             continue
-
-        # Ende dieses Tages
-        if i + 1 < len(day_matches):
-            end = day_matches[i + 1].start()
-        else:
-            end = len(section)
-
-        day_text = section[
-            match.end():end
-        ]
-
-        # Keine Sprechstunde
-        if re.search(
-            r"Keine\s+Sprechstunde",
-            day_text,
-            re.IGNORECASE
-        ):
-            result[day] = "Keine Sprechstunde"
+        weekday = detect_weekday(cells[0].get_text(" "))
+        if not weekday or phone_idx >= len(cells):
             continue
-
-        times = extract_unique_times(day_text)
-
-        if not times:
-            continue
-
-        # ----------------------------------------------------
-        # WICHTIG:
-        #
-        # Die 116117-Seite kopiert die Zeitangaben doppelt:
-        #
-        # 08:00 bis 12:00
-        # 08:00 - 12:00
-        #
-        # Durch extract_unique_times() haben wir daraus nur:
-        #
-        # 08:00-12:00
-        #
-        # gemacht.
-        #
-        # Die erste Zeit ist die Sprechstunde.
-        # Danach kommen die telefonischen Zeiten.
-        # ----------------------------------------------------
-
-        if len(times) >= 2:
-
-            phone_times = times[1:]
-
-            result[day] = "; ".join(phone_times)
-
-        else:
-            # Wenn nur eine Zeit vorhanden ist,
-            # können wir nicht sicher unterscheiden,
-            # ob sie Sprechstunde oder Telefonzeit ist.
-            #
-            # In deinem Datensatz lassen wir sie deshalb
-            # leer.
-            result[day] = ""
+        times = extract_times(cells[phone_idx].get_text(" "))
+        if times:
+            result[weekday] = times
 
     return result
-
-
-# ------------------------------------------------------------
-# THERAPEUTEN TRENNEN
-# ------------------------------------------------------------
-
-def split_blocks(text):
-
-    # Ein neuer Eintrag beginnt jeweils bei:
-    #
-    # Psychotherapie
-    # Frau/Herr ...
-
-    pattern = re.compile(
-        r"Psychotherapie\s+"
-        r"(?:Frau|Herr)\b"
-    )
-
-    matches = list(pattern.finditer(text))
-
-    blocks = []
-
-    for i, match in enumerate(matches):
-
-        start = match.start()
-
-        if i + 1 < len(matches):
-            end = matches[i + 1].start()
-        else:
-            end = len(text)
-
-        blocks.append(
-            text[start:end].strip()
-        )
-
-    return blocks
-
-
-# ------------------------------------------------------------
-# EINEN THERAPEUTEN VERARBEITEN
-# ------------------------------------------------------------
-
-def parse_block(block):
-
-    phone_hours = extract_phone_hours(block)
-
-    return {
-        "Name": extract_name(block),
-        "Adresse": extract_address(block),
-        "Telefon": extract_phone(block),
-        "E-Mail": extract_email(block),
-
-        "Montag": phone_hours["Montag"],
-        "Dienstag": phone_hours["Dienstag"],
-        "Mittwoch": phone_hours["Mittwoch"],
-        "Donnerstag": phone_hours["Donnerstag"],
-        "Freitag": phone_hours["Freitag"],
-        "Samstag": phone_hours["Samstag"],
-        "Sonntag": phone_hours["Sonntag"],
-    }
 
 
 # ------------------------------------------------------------
@@ -447,108 +188,55 @@ def parse_block(block):
 # ------------------------------------------------------------
 
 def main():
-
     input_path = Path(INPUT_FILE)
-
     if not input_path.exists():
-
         print()
-        print("FEHLER")
-        print(
-            f"Die Datei '{INPUT_FILE}' wurde nicht gefunden."
-        )
+        print("FEHLER: Datei nicht gefunden:", INPUT_FILE)
+        print("Bitte die Ergebnisseite mit Cmd+S als 'Webseite, vollstaendig'")
+        print("speichern und als", INPUT_FILE, "im selben Ordner ablegen.")
         print()
-        print("Der Ordner sollte so aussehen:")
-        print()
-        print("116117suche/")
-        print("├── 116117_parser.py")
-        print("└── ergebnisse.txt")
-        print()
-
         return
 
-    # UTF-8 versuchen
-    try:
-        text = input_path.read_text(
-            encoding="utf-8"
-        )
+    html = input_path.read_text(encoding="utf-8", errors="ignore")
+    soup = BeautifulSoup(html, "html.parser")
 
-    except UnicodeDecodeError:
-
-        text = input_path.read_text(
-            encoding="cp1252"
-        )
-
-    text = clean_text(text)
-
-    blocks = split_blocks(text)
-
+    tables = [t for t in soup.find_all("table") if is_schedule_table(t)]
     print()
-    print(
-        f"Gefundene Therapeutenblöcke: {len(blocks)}"
-    )
+    print(f"Gefundene Tabellen: {len(tables)}")
+
+    if not tables:
+        print()
+        print("Keine Tabellen gefunden. Vermutlich wurde die Seite ohne den")
+        print("sichtbaren Inhalt gespeichert. Alternative:")
+        print("  Rechtsklick auf die Seite -> 'Untersuchen' -> im Reiter")
+        print("  'Elemente' Rechtsklick auf <html> -> Copy -> Copy outerHTML")
+        print("  -> in einen Editor einfuegen -> als ergebnisse.html speichern.")
+        print()
+        return
 
     therapists = []
+    for table in tables:
+        name, adresse, phone, email = extract_contact(table)
+        if not name:
+            continue
+        row = {"Name": name, "Adresse": adresse,
+               "Telefon": phone, "E-Mail": email}
+        row.update(parse_table(table))
+        therapists.append(row)
 
-    for block in blocks:
-
-        data = parse_block(block)
-
-        if data["Name"]:
-
-            therapists.append(data)
-
-    print(
-        f"Erkannte Therapeuten: {len(therapists)}"
-    )
-
+    print(f"Erkannte Praxen: {len(therapists)}")
     if not therapists:
-
-        print()
-        print(
-            "Es wurden keine Therapeuten erkannt."
-        )
-
+        print("Es wurden keine Praxen erkannt.")
         return
 
-    columns = [
-        "Name",
-        "Adresse",
-        "Telefon",
-        "E-Mail",
-        "Montag",
-        "Dienstag",
-        "Mittwoch",
-        "Donnerstag",
-        "Freitag",
-        "Samstag",
-        "Sonntag",
-    ]
-
-    output_path = Path(OUTPUT_FILE)
-
-    with output_path.open(
-        "w",
-        newline="",
-        encoding="utf-8-sig"
-    ) as file:
-
-        writer = csv.DictWriter(
-            file,
-            fieldnames=columns,
-            delimiter=";"
-        )
-
+    columns = ["Name", "Adresse", "Telefon", "E-Mail"] + WEEKDAYS
+    with Path(OUTPUT_FILE).open("w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=columns, delimiter=";")
         writer.writeheader()
-
         writer.writerows(therapists)
 
     print()
-    print("Fertig.")
-    print()
-    print(
-        f"CSV erstellt: {output_path.resolve()}"
-    )
+    print("Fertig. CSV erstellt:", Path(OUTPUT_FILE).resolve())
     print()
 
 
