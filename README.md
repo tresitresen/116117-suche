@@ -1,5 +1,5 @@
 # 116117-suche
-Dingens dass mir Chatgpt gebastelt hat zum Text von der 116117 Website in eine csv Tabelle zu konvertieren. 
+Dingens dass mir Chatgpt gebastelt hat zum Ergebnisse von der 116117 Website (Arzt/Therapeutensuche) in eine csv Tabelle zu konvertieren und nach jetzt "anrufbaren" Ergebnissen zu sortieren. Dient primär meinem privatem Gebrauch, ich bin kein Programmierer sondern bin nur zu faul einzeln immer rauszusuchen wann ich wo anrufen kann. Vielleicht hilft das ja noch irgendwem. Ich übernehme keine Haftung oder so falls irgendwas nicht funktioniert.  
 
 Anleitung: 
 
