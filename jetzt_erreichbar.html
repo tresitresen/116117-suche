@@ -289,6 +289,18 @@ function surnameOf(name) {
   if (prev && PARTICLE_RE.test(prev)) return prev + " " + last;
   return last;
 }
+/* Vollständige Anrede: Frau/Herr + Prof./Dr. + Nachname (z. B. "Frau Dr. Blum") */
+function anredeOf(name) {
+  const raw = (name || "").trim();
+  let sal = "";
+  if (/^frau\b/i.test(raw)) sal = "Frau";
+  else if (/^herr\b/i.test(raw)) sal = "Herr";
+  const titles = [];
+  if (/\bprof\.?/i.test(raw)) titles.push("Prof.");
+  if (/\bdr\.?/i.test(raw)) titles.push("Dr.");
+  const surname = surnameOf(raw);
+  return [sal, ...titles, surname].filter(Boolean).join(" ");
+}
 
 /* ---------- time helpers ---------- */
 const WIN_RE = /(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/g;
@@ -386,6 +398,7 @@ function cardHTML(x, nowMin, key) {
   const email = r["E-Mail"] || "";
   const addr = r["Adresse"] || "";
   const surname = surnameOf(r["Name"] || "");
+  const anrede = anredeOf(r["Name"] || "");
 
   const winHTML = wins.length
     ? `<div class="today-times"><span class="lbl">Heute:</span>` + wins.map(w => `<span class="win ${(w.s<=nowMin && nowMin<w.e) ? "now" : ""}">${w.label}</span>`).join("") + `</div>`
@@ -394,7 +407,7 @@ function cardHTML(x, nowMin, key) {
   const parts = [];
   if (phone) parts.push(`<span class="field phone"><a class="phone" href="tel:${telHref}">☎ ${esc(phone)}</a><button class="cp" data-copy="${esc(phone)}" title="Telefonnummer kopieren">⧉</button></span>`);
   if (email) parts.push(`<span class="field"><a class="mail" href="mailto:${esc(email)}">${esc(email)}</a><button class="cp" data-copy="${esc(email)}" title="E-Mail kopieren">⧉</button></span>`);
-  if (surname) parts.push(`<button class="cp" data-copy="${esc(surname)}" title="Nachname kopieren (für Anrede)">⧉ Nachname: <span class="who">${esc(surname)}</span></button>`);
+  if (anrede) parts.push(`<button class="cp" data-copy="${esc(anrede)}" title="Anrede kopieren (für Mail)">⧉ Anrede: <span class="who">${esc(anrede)}</span></button>`);
   const contactHTML = parts.length ? `<div class="contact">${parts.join("")}</div>` : "";
 
   const weekRows = DATA.dateCols.map(dc => {
@@ -473,11 +486,4 @@ const drop = document.getElementById("drop");
 const fileInput = document.getElementById("file");
 drop.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
-["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("drag"); }));
-["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("drag"); }));
-drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
-
-document.getElementById("search").addEventListener("input", render);
-document.getElementById("filter").addEventListener("change", render);
-document.getElementById("reload").addEventListener("click", () => {
-  DATA = null; try { localStorage.removeItem(CSV_KEY); } catc
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("
