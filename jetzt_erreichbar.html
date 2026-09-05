@@ -38,7 +38,7 @@
 
   header {
     position: sticky; top: 0; z-index: 10;
-    background: rgba(233,237,227,.9); backdrop-filter: saturate(1.2) blur(10px);
+    background: rgba(233,237,227,.9); -webkit-backdrop-filter: saturate(1.2) blur(10px); backdrop-filter: saturate(1.2) blur(10px);
     border-bottom: 1px solid var(--line);
   }
   .head-inner {
@@ -481,9 +481,74 @@ function loadText(text) {
 }
 function handleFile(file) { const reader = new FileReader(); reader.onload = e => loadText(e.target.result); reader.readAsText(file, "utf-8"); }
 
-/* ---------- events ---------- */
+/* ---------- events + init (läuft erst nach DOM-Ladung, Safari-sicher) ---------- */
+function start() {
 const drop = document.getElementById("drop");
 const fileInput = document.getElementById("file");
 drop.addEventListener("click", () => fileInput.click());
 fileInput.addEventListener("change", e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
-["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("drag"); }));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("drag"); }));
+drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) handleFile(f); });
+
+document.getElementById("search").addEventListener("input", render);
+document.getElementById("filter").addEventListener("change", render);
+document.getElementById("reload").addEventListener("click", () => {
+  DATA = null; try { localStorage.removeItem(CSV_KEY); } catch(e){}
+  document.getElementById("results").classList.add("hidden");
+  document.getElementById("drop").classList.remove("hidden"); fileInput.value = "";
+});
+
+document.getElementById("export").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify(TRACK, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob); const a = document.createElement("a"); const d = new Date();
+  a.href = url; a.download = `116117_fortschritt_${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}.json`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+const importFile = document.getElementById("import-file");
+document.getElementById("import-btn").addEventListener("click", () => importFile.click());
+importFile.addEventListener("change", e => {
+  const f = e.target.files[0]; if (!f) return; const reader = new FileReader();
+  reader.onload = ev => {
+    try { const obj = JSON.parse(ev.target.result); Object.keys(obj).forEach(k => { TRACK[k] = Object.assign(trk(k), obj[k]); }); saveTrack(); render(); alert("Fortschritt geladen und zusammengeführt."); }
+    catch(err) { alert("Diese Datei ist keine gültige Fortschritts-Sicherung."); }
+    importFile.value = "";
+  };
+  reader.readAsText(f, "utf-8");
+});
+
+const list = document.getElementById("list");
+list.addEventListener("click", e => {
+  const cp = e.target.closest(".cp");
+  if (cp) { copyText(cp.dataset.copy, cp); return; }
+  const week = e.target.closest(".week-btn");
+  if (week) { const i = +week.dataset.idx; expanded.has(i) ? expanded.delete(i) : expanded.add(i); render(); return; }
+  const chip = e.target.closest(".chip");
+  if (chip) {
+    const key = chip.closest(".track").dataset.key; const t = trk(key); const act = chip.dataset.act;
+    if (act === "called") { t.called = !t.called; t.calledAt = t.called ? stampToday() : null; }
+    if (act === "mailed") { t.mailed = !t.mailed; t.mailedAt = t.mailed ? stampToday() : null; }
+    saveTrack(); render(); return;
+  }
+  const out = e.target.closest(".outcome button");
+  if (out) {
+    const key = out.closest(".track").dataset.key; const t = trk(key);
+    t.outcome = (t.outcome === out.dataset.out) ? "open" : out.dataset.out;
+    saveTrack(); render(); return;
+  }
+});
+list.addEventListener("input", e => {
+  const ta = e.target.closest(".note"); if (!ta) return;
+  trk(ta.dataset.key).note = ta.value; saveTrack();
+});
+
+/* ---------- init ---------- */
+try { const saved = localStorage.getItem(TRACK_KEY); if (saved) TRACK = JSON.parse(saved) || {}; } catch(e){ TRACK = {}; }
+tick(); setInterval(tick, 1000);
+try { const savedCsv = localStorage.getItem(CSV_KEY); if (savedCsv) loadText(savedCsv); } catch(e){}
+}
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+else start();
+</script>
+</body>
+</html>
