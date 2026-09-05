@@ -111,9 +111,29 @@
     display: inline-flex; align-items: center; gap: 5px;
   }
   .cp:hover { border-color: var(--sage); color: var(--sage-deep); }
-  .cp.ok { background: var(--open); color: #fff; border-color: var(--open); }
+  .cp.ok, .dbtn.ok { background: var(--open); color: #fff; border-color: var(--open); }
   .field.phone .cp { border-radius: 0 8px 8px 0; border-left: none; }
+  .cp.an { white-space: normal; text-align: left; }
   .cp .who { font-family: var(--serif); font-weight: 700; }
+
+  .draft-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+  .dbtn {
+    border: 1px solid var(--line-strong); background: var(--panel); color: var(--ink-soft);
+    font-size: 12.5px; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .dbtn:hover { border-color: var(--sage); color: var(--sage-deep); }
+  .dbtn.primary { background: var(--sage-deep); color: #fff; border-color: var(--sage-deep); }
+  .dbtn.primary:hover { background: var(--open); border-color: var(--open); color: #fff; }
+  .no-mail { font-size: 12px; color: var(--off); font-style: italic; }
+
+  .tpl { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; box-shadow: var(--shadow); }
+  .tpl-head { font-family: var(--serif); font-weight: 700; font-size: 15px; margin-bottom: 10px; color: var(--sage-deep); }
+  .tpl-head span { font-family: var(--mono); font-size: 11.5px; font-weight: 400; color: var(--off); margin-left: 6px; }
+  .tpl-subject { width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; padding: 9px 11px; font-size: 14px; font-family: var(--sans); background: #fff; color: var(--ink); margin-bottom: 8px; }
+  .tpl-body { width: 100%; min-height: 150px; border: 1px solid var(--line-strong); border-radius: 8px; padding: 9px 11px; font-size: 14px; font-family: var(--sans); background: #fff; color: var(--ink); resize: vertical; line-height: 1.5; }
+  .tpl-subject:focus, .tpl-body:focus { outline: 2px solid var(--sage); outline-offset: 0; }
+  .tpl-hint { font-size: 12px; color: var(--ink-soft); margin-top: 8px; }
 
   .today-times { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .today-times .lbl { font-size: 12px; color: var(--off); margin-right: 4px; }
@@ -156,7 +176,7 @@
   }
   @media print {
     header { position: static; }
-    .drop, .controls, .mbtn, .week-btn, .track, .note, .cp { display: none !important; }
+    .drop, .controls, .mbtn, .week-btn, .track, .note, .cp, .tpl, .draft-row { display: none !important; }
     .card { break-inside: avoid; box-shadow: none; }
   }
 </style>
@@ -206,10 +226,17 @@
         <option value="success">Zusagen</option>
         <option value="rejected">Absagen</option>
       </select>
+      <button class="mbtn" id="tpl-btn" title="Mail-Vorlage bearbeiten">✉ Vorlage</button>
       <button class="mbtn" id="export" title="Fortschritt als Datei sichern">⤓ Sichern</button>
       <button class="mbtn" id="import-btn" title="Gesicherten Fortschritt laden">⤒ Laden</button>
       <input type="file" id="import-file" accept=".json,application/json" class="hidden">
       <button class="mbtn" id="reload" title="Andere CSV laden">↻ CSV</button>
+    </div>
+    <div id="tpl" class="tpl hidden">
+      <div class="tpl-head">Mail-Vorlage <span>Platzhalter: [Anrede] · [Praxis] · [Nachname]</span></div>
+      <input id="tpl-subject" class="tpl-subject" type="text" placeholder="Betreff">
+      <textarea id="tpl-body" class="tpl-body" placeholder="Text der Mail…"></textarea>
+      <div class="tpl-hint">Wird lokal gespeichert. Beim Öffnen oder Kopieren eines Entwurfs wird [Anrede] automatisch durch die korrekte Anrede der jeweiligen Praxis ersetzt (z. B. „Sehr geehrte Frau Dr. Blum,“).</div>
     </div>
     <div id="notice" class="notice hidden"></div>
     <div class="list" id="list"></div>
@@ -225,9 +252,15 @@ const WEEKDAYS = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag
 const MONTHS = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
 const CSV_KEY = "csv116117";
 const TRACK_KEY = "track116117";
+const MAIL_KEY = "mail116117";
+const MAIL_DEFAULT = {
+  subject: "Anfrage Termin / freier Platz",
+  body: "[Anrede]\n\nüber die Terminservicestelle der 116117 habe ich Ihre Praxis gefunden. Ich bin auf der Suche nach einem Termin und wollte fragen, ob bei Ihnen aktuell etwas frei ist bzw. wie die Warteliste aussieht.\n\nÜber eine kurze Rückmeldung würde ich mich sehr freuen.\n\nMit freundlichen Grüßen\n"
+};
 
 let DATA = null;
 let TRACK = {};
+let MAIL = Object.assign({}, MAIL_DEFAULT);
 let expanded = new Set();
 
 /* ---------- CSV Parser ---------- */
@@ -289,17 +322,36 @@ function surnameOf(name) {
   if (prev && PARTICLE_RE.test(prev)) return prev + " " + last;
   return last;
 }
-/* Vollständige Anrede: Frau/Herr + Prof./Dr. + Nachname (z. B. "Frau Dr. Blum") */
+/* Fertige, gegenderte Mail-Anrede (z. B. "Sehr geehrte Frau Dr. Blum,") */
 function anredeOf(name) {
   const raw = (name || "").trim();
-  let sal = "";
-  if (/^frau\b/i.test(raw)) sal = "Frau";
-  else if (/^herr\b/i.test(raw)) sal = "Herr";
+  const isFrau = /^frau\b/i.test(raw);
+  const isHerr = /^herr\b/i.test(raw);
   const titles = [];
   if (/\bprof\.?/i.test(raw)) titles.push("Prof.");
   if (/\bdr\.?/i.test(raw)) titles.push("Dr.");
   const surname = surnameOf(raw);
-  return [sal, ...titles, surname].filter(Boolean).join(" ");
+  const rest = [...titles, surname].filter(Boolean).join(" ");
+  if (isFrau && rest) return `Sehr geehrte Frau ${rest},`;
+  if (isHerr && rest) return `Sehr geehrter Herr ${rest},`;
+  return "Sehr geehrte Damen und Herren,";
+}
+
+/* Platzhalter in der Mail-Vorlage ersetzen */
+function fillTpl(str, r) {
+  return (str || "")
+    .replace(/\[Anrede\]/gi, anredeOf(r["Name"] || ""))
+    .replace(/\[Praxis\]/gi, r["Name"] || "")
+    .replace(/\[Nachname\]/gi, surnameOf(r["Name"] || ""));
+}
+function draftText(r) {
+  const s = fillTpl(MAIL.subject, r), b = fillTpl(MAIL.body, r);
+  return (s ? `Betreff: ${s}\n\n` : "") + b;
+}
+function openDraft(r) {
+  const email = r["E-Mail"] || "";
+  const url = `mailto:${email}?subject=${encodeURIComponent(fillTpl(MAIL.subject, r))}&body=${encodeURIComponent(fillTpl(MAIL.body, r))}`;
+  const a = document.createElement("a"); a.href = url; document.body.appendChild(a); a.click(); a.remove();
 }
 
 /* ---------- time helpers ---------- */
@@ -407,8 +459,13 @@ function cardHTML(x, nowMin, key) {
   const parts = [];
   if (phone) parts.push(`<span class="field phone"><a class="phone" href="tel:${telHref}">☎ ${esc(phone)}</a><button class="cp" data-copy="${esc(phone)}" title="Telefonnummer kopieren">⧉</button></span>`);
   if (email) parts.push(`<span class="field"><a class="mail" href="mailto:${esc(email)}">${esc(email)}</a><button class="cp" data-copy="${esc(email)}" title="E-Mail kopieren">⧉</button></span>`);
-  if (anrede) parts.push(`<button class="cp" data-copy="${esc(anrede)}" title="Anrede kopieren (für Mail)">⧉ Anrede: <span class="who">${esc(anrede)}</span></button>`);
+  if (anrede) parts.push(`<button class="cp an" data-copy="${esc(anrede)}" title="Anrede kopieren (für Mail)">⧉ <span class="who">${esc(anrede)}</span></button>`);
   const contactHTML = parts.length ? `<div class="contact">${parts.join("")}</div>` : "";
+
+  const draftHTML = `<div class="draft-row">
+      ${email ? `<button class="dbtn primary draft-open" data-idx="${idx}" title="Mail-Entwurf im Mailprogramm öffnen">✉ Entwurf öffnen</button>` : `<span class="no-mail">keine E-Mail hinterlegt</span>`}
+      <button class="dbtn draft-copy" data-idx="${idx}" title="Ausgefüllten Entwurf kopieren">⧉ Entwurf kopieren</button>
+    </div>`;
 
   const weekRows = DATA.dateCols.map(dc => {
     const p = dc.split("."); const dObj = new Date(+p[2], +p[1]-1, +p[0]); const wd = WEEKDAYS[dObj.getDay()];
@@ -437,7 +494,7 @@ function cardHTML(x, nowMin, key) {
       <div><h3 class="name">${esc(r["Name"]||"—")}</h3>${addr ? `<div class="addr">${esc(addr)}</div>` : ""}</div>
       <span class="badge ${badgeCls}">${badge}</span>
     </div>
-    ${winHTML}${contactHTML}${trackHTML}
+    ${winHTML}${contactHTML}${draftHTML}${trackHTML}
     ${DATA.dateCols.length ? `<button class="week-btn" data-idx="${idx}">${isOpen ? "Wochenübersicht ausblenden" : "ganze Woche anzeigen"}</button><div class="week ${isOpen?"show":""}">${weekRows}</div>` : ""}
   </div>`;
 }
@@ -519,6 +576,10 @@ importFile.addEventListener("change", e => {
 
 const list = document.getElementById("list");
 list.addEventListener("click", e => {
+  const dOpen = e.target.closest(".draft-open");
+  if (dOpen) { openDraft(DATA.rows[+dOpen.dataset.idx]); return; }
+  const dCopy = e.target.closest(".draft-copy");
+  if (dCopy) { copyText(draftText(DATA.rows[+dCopy.dataset.idx]), dCopy); return; }
   const cp = e.target.closest(".cp");
   if (cp) { copyText(cp.dataset.copy, cp); return; }
   const week = e.target.closest(".week-btn");
@@ -541,6 +602,17 @@ list.addEventListener("input", e => {
   const ta = e.target.closest(".note"); if (!ta) return;
   trk(ta.dataset.key).note = ta.value; saveTrack();
 });
+
+/* ---------- Mail-Vorlage ---------- */
+try { const savedMail = localStorage.getItem(MAIL_KEY); if (savedMail) MAIL = Object.assign({}, MAIL_DEFAULT, JSON.parse(savedMail)); } catch(e){}
+const tplPanel = document.getElementById("tpl");
+const tplSubject = document.getElementById("tpl-subject");
+const tplBody = document.getElementById("tpl-body");
+tplSubject.value = MAIL.subject; tplBody.value = MAIL.body;
+document.getElementById("tpl-btn").addEventListener("click", () => tplPanel.classList.toggle("hidden"));
+function saveMail(){ MAIL.subject = tplSubject.value; MAIL.body = tplBody.value; try { localStorage.setItem(MAIL_KEY, JSON.stringify(MAIL)); } catch(e){} }
+tplSubject.addEventListener("input", saveMail);
+tplBody.addEventListener("input", saveMail);
 
 /* ---------- init ---------- */
 try { const saved = localStorage.getItem(TRACK_KEY); if (saved) TRACK = JSON.parse(saved) || {}; } catch(e){ TRACK = {}; }
