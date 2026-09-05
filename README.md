@@ -4,7 +4,7 @@ Dingens dass mir Chatgpt gebastelt hat zum Ergebnisse von der 116117 Website (Ar
 Anleitung: 
 In den .py Skripten steht nochmal alles genauer (glaube ich)
 1. ```
-   cd ~/Desktop && mkdir -p ~/Desktop 116117suche && cd ~/Desktop/116117suche && curl -O https://raw.githubusercontent.com/tresitresen/116117-suche/main/116117_parser_html.py && curl -O https://raw.githubusercontent.com/tresitresen/116117-suche/main/jetzt_erreichbar.py
+   cd ~/Desktop && mkdir -p ~/Desktop 116117suche && cd ~/Desktop/116117suche && curl -O https://raw.githubusercontent.com/tresitresen/116117-suche/main/116117_parser_html.py && curl -O https://raw.githubusercontent.com/tresitresen/116117-suche/main/jetzt_erreichbar.py && curl -O https://raw.githubusercontent.com/tresitresen/116117-suche/main/jetzt_erreichbar.html
    ```
 2. copy Element von #app > div > div > div.main-content-inner-container.no-focus-outline > div > div > div.outer-list-container > div > div.search-results-container 
 3. ```
@@ -17,7 +17,8 @@ In den .py Skripten steht nochmal alles genauer (glaube ich)
 5. ```
    python3 116117_parser_html.py
    ```
-6. ```
+7. als csv auslesen:
+   ```
    python3 jetzt_erreichbar.py
    ```
-7. als csv auslesen oder via html gui 
+7. oder via ``` jetzt_erreichbar.html``` als gui 
