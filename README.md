@@ -21,4 +21,4 @@ In den .py Skripten steht nochmal alles genauer (glaube ich)
    ```
    python3 jetzt_erreichbar.py
    ```
-7. oder via ``` jetzt_erreichbar.html``` als gui 
+7. oder via ``` jetzt_erreichbar.html``` als gui mit Tracking von Anrufen / Mails 
