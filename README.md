@@ -13,10 +13,11 @@ In den .py Skripten steht nochmal alles genauer (glaube ich)
 4. ```
    pip install beautifulsoup4
    ```
-   falls noch nicht installiert
+   (falls noch nicht installiert)
 5. ```
    python3 116117_parser_html.py
    ```
 6. ```
    python3 jetzt_erreichbar.py
    ```
+7. als csv auslesen oder via html gui 
