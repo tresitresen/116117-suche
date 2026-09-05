@@ -17,8 +17,9 @@ In den .py Skripten steht nochmal alles genauer (glaube ich)
 5. ```
    python3 116117_parser_html.py
    ```
-7. als csv auslesen:
+6. (als csv auslesen:
    ```
    python3 jetzt_erreichbar.py
    ```
+   )
 7. oder via ``` jetzt_erreichbar.html``` als gui mit Tracking von Anrufen / Mails 
