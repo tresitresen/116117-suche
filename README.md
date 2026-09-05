@@ -1,5 +1,5 @@
 # 116117-suche
-Dingens dass mir Chatgpt gebastelt hat zum Ergebnisse von der 116117 Website (Arzt/Therapeutensuche) in eine csv Tabelle zu konvertieren und nach jetzt "anrufbaren" Ergebnissen zu sortieren. Dient primär meinem privatem Gebrauch, ich bin kein Programmierer sondern bin nur zu faul einzeln immer rauszusuchen wann ich wo anrufen kann. Vielleicht hilft das ja noch irgendwem. Ich übernehme keine Haftung oder so falls irgendwas nicht funktioniert.  
+Dingens dass mir Chatgpt gebastelt hat zum Ergebnisse von der 116117 Website (Arzt/Therapeutensuche) in eine csv Tabelle zu konvertieren und nach jetzt "anrufbaren" Ergebnissen zu sortieren + erleichterter Mail Formulierung. Dient primär meinem privatem Gebrauch, ich bin kein Programmierer sondern bin nur zu faul einzeln immer rauszusuchen wann ich wo anrufen kann. Vielleicht hilft das ja noch irgendwem. Ich übernehme keine Haftung oder so falls irgendwas nicht funktioniert.  
 
 Anleitung: 
 In den .py Skripten steht nochmal alles genauer (glaube ich)
@@ -22,4 +22,4 @@ In den .py Skripten steht nochmal alles genauer (glaube ich)
    python3 jetzt_erreichbar.py
    ```
    )
-7. oder via ``` jetzt_erreichbar.html``` als gui mit Tracking von Anrufen / Mails 
+7. oder via ``` jetzt_erreichbar.html``` als gui mit Tracking von Anrufen / Mails + Mail Schreibhilfe
